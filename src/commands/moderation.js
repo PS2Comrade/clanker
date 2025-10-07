@@ -493,63 +493,204 @@ export async function handlePrefixModeration(message, command, args) {
     return message.member.permissions.has(perm);
   };
   
+  // Parse user mention or ID
+  const getUserFromArg = async (arg) => {
+    if (!arg) return null;
+    const match = arg.match(/^<@!?(\d+)>$/) || arg.match(/^(\d+)$/);
+    if (!match) return null;
+    try {
+      return await message.client.users.fetch(match[1]);
+    } catch {
+      return null;
+    }
+  };
+  
   switch (command) {
-    case 'warn':
+    case 'warn': {
       if (!hasPermission(PermissionFlagsBits.ModerateMembers)) {
         await message.reply('You need Moderate Members permission.');
         return;
       }
-      // Implementation similar to slash command
-      break;
       
-    case 'mute':
-      if (!hasPermission(PermissionFlagsBits.ModerateMembers)) {
-        await message.reply('You need Moderate Members permission.');
+      const user = await getUserFromArg(args[0]);
+      if (!user) {
+        await message.reply('Please mention a user or provide a user ID.');
         return;
       }
-      break;
       
-    case 'unmute':
-      if (!hasPermission(PermissionFlagsBits.ModerateMembers)) {
-        await message.reply('You need Moderate Members permission.');
+      if (user.bot) {
+        await message.reply('Cannot warn bots.');
         return;
       }
-      break;
       
-    case 'kick':
-      if (!hasPermission(PermissionFlagsBits.KickMembers)) {
-        await message.reply('You need Kick Members permission.');
-        return;
+      const reason = args.slice(1).join(' ') || 'No reason provided';
+      
+      try {
+        const result = processWarning(
+          message.guild.id,
+          user.id,
+          message.author.id,
+          reason
+        );
+        
+        const embed = new EmbedBuilder()
+          .setColor(result.banned ? 0xFF0000 : 0xFFAA00)
+          .setTitle(result.banned ? '⚠️ User Banned' : '⚠️ User Warned')
+          .setDescription(`**User:** ${user.tag}\n**Moderator:** ${message.author.tag}`);
+        
+        if (result.banned) {
+          embed.addFields(
+            { name: 'Trial Stage', value: getTrialName(result.trialStage), inline: true },
+            { name: 'Warnings', value: `${result.warnCount}/${result.warnCount}`, inline: true }
+          );
+          
+          if (result.appealDate) {
+            embed.addFields({
+              name: 'Appeal Available',
+              value: `<t:${Math.floor(result.appealDate.getTime() / 1000)}:R>`
+            });
+          } else {
+            embed.addFields({ name: 'Appeal', value: 'Permanent ban - No appeal' });
+          }
+          
+          embed.addFields({ name: 'Next Trial', value: getTrialName(result.nextStage) });
+          
+          try {
+            const member = await message.guild.members.fetch(user.id);
+            await member.ban({ reason: `${getTrialName(result.trialStage)} completed: ${reason}` });
+            embed.setFooter({ text: 'User has been banned from the server.' });
+          } catch (error) {
+            embed.setFooter({ text: 'Failed to ban user - insufficient permissions.' });
+          }
+        } else {
+          const stats = getUserStats(message.guild.id, user.id);
+          embed.addFields(
+            { name: 'Trial Stage', value: getTrialName(result.trialStage), inline: true },
+            { name: 'Warnings', value: `${result.warnCount}/${stats.maxWarns}`, inline: true },
+            { name: 'Until Ban', value: `${stats.warnsUntilBan} more`, inline: true }
+          );
+        }
+        
+        embed.addFields({ name: 'Reason', value: reason });
+        await message.reply({ embeds: [embed] });
+      } catch (error) {
+        console.error('Warn command error:', error);
+        await message.reply('An error occurred.');
       }
       break;
-      
-    case 'ban':
-      if (!hasPermission(PermissionFlagsBits.BanMembers)) {
-        await message.reply('You need Ban Members permission.');
+    }
+    
+    case 'warns': {
+      const user = await getUserFromArg(args[0]);
+      if (!user) {
+        await message.reply('Please mention a user or provide a user ID.');
         return;
       }
-      break;
       
-    case 'unban':
-      if (!hasPermission(PermissionFlagsBits.BanMembers)) {
-        await message.reply('You need Ban Members permission.');
-        return;
+      try {
+        const stats = getUserStats(message.guild.id, user.id);
+        
+        const embed = new EmbedBuilder()
+          .setColor(0x5865F2)
+          .setTitle('⚠️ User Warnings')
+          .setDescription(`**User:** ${user.tag}`)
+          .addFields(
+            { name: 'Trial Stage', value: getTrialName(stats.trialStage), inline: true },
+            { name: 'Warnings', value: `${stats.warnCount}/${stats.maxWarns}`, inline: true },
+            { name: 'Until Ban', value: `${stats.warnsUntilBan} more`, inline: true }
+          );
+        
+        if (stats.banAppealDate) {
+          const canAppeal = stats.canAppeal ? '✅ Can appeal now' : '⏳ Pending';
+          embed.addFields({
+            name: 'Appeal Status',
+            value: `${canAppeal}\nAvailable: <t:${Math.floor(stats.banAppealDate.getTime() / 1000)}:R>`
+          });
+        }
+        
+        if (stats.isPermanent) {
+          embed.addFields({ name: 'Status', value: '🔒 Permanent Ban (Great Trial)' });
+        }
+        
+        await message.reply({ embeds: [embed] });
+      } catch (error) {
+        console.error('Warns command error:', error);
+        await message.reply('An error occurred.');
       }
       break;
+    }
+    
+    case 'modstats': {
+      const user = await getUserFromArg(args[0]);
+      if (!user) {
+        await message.reply('Please mention a user or provide a user ID.');
+        return;
+      }
       
-    case 'warns':
-      // Anyone can check their own warns
+      try {
+        const stats = getUserStats(message.guild.id, user.id);
+        
+        const embed = new EmbedBuilder()
+          .setColor(0x5865F2)
+          .setTitle('📊 Moderation Statistics')
+          .setDescription(`**User:** ${user.tag}`)
+          .addFields(
+            { name: 'Current Trial', value: getTrialName(stats.trialStage), inline: true },
+            { name: 'Warnings', value: `${stats.warnCount}/${stats.maxWarns}`, inline: true },
+            { name: 'Until Ban', value: `${stats.warnsUntilBan} more`, inline: true }
+          );
+        
+        if (stats.banAppealDate) {
+          embed.addFields({
+            name: 'Ban Appeal',
+            value: `Available: <t:${Math.floor(stats.banAppealDate.getTime() / 1000)}:R>\nStatus: ${stats.canAppeal ? '✅ Can appeal' : '⏳ Pending'}`
+          });
+        }
+        
+        if (stats.isPermanent) {
+          embed.addFields({ name: 'Status', value: '🔒 Permanent Ban - No Appeal' });
+        }
+        
+        if (stats.history.length > 0) {
+          const historyText = stats.history
+            .slice(0, 5)
+            .map(h => `• **${h.action}** - <t:${h.created_at}:R>`)
+            .join('\n');
+          
+          embed.addFields({ name: 'Recent History', value: historyText });
+        }
+        
+        await message.reply({ embeds: [embed] });
+      } catch (error) {
+        console.error('Modstats command error:', error);
+        await message.reply('An error occurred.');
+      }
       break;
-      
-    case 'clearwarns':
+    }
+    
+    case 'clearwarns': {
       if (!hasPermission(PermissionFlagsBits.Administrator)) {
         await message.reply('You need Administrator permission.');
         return;
       }
-      break;
       
-    case 'modstats':
-      // Anyone can check stats
+      const user = await getUserFromArg(args[0]);
+      if (!user) {
+        await message.reply('Please mention a user or provide a user ID.');
+        return;
+      }
+      
+      try {
+        clearUserWarnings(message.guild.id, user.id);
+        await message.reply(`✅ Cleared all warnings for ${user.tag}.`);
+      } catch (error) {
+        console.error('Clear warnings error:', error);
+        await message.reply('An error occurred.');
+      }
       break;
+    }
+    
+    default:
+      await message.reply(`For moderation commands like \`!${command}\`, please use the slash command version \`/${command}\` for full functionality.`);
   }
 }
