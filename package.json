@@ -1,0 +1,26 @@
+{
+  "name": "clanker-bot",
+  "version": "2.0.0",
+  "description": "Discord bot with translation and 3-trial moderation system",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node test-bot.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "translation",
+    "moderation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "better-sqlite3": "^9.2.2",
+    "axios": "^1.6.5",
+    "dotenv": "^16.3.1"
+  }
+}
