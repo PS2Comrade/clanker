@@ -319,17 +319,7 @@ export const banCommand = {
     }
   }
 };
-    } catch (error) {
-      console.error('Ban command error:', error);
-      await interaction.reply({ 
-        content: 'Failed to ban user - insufficient permissions.', 
-        ephemeral: true 
-      });
-    }
-  }
-};
 
-// Unban command
 export const unbanCommand = {
   data: new SlashCommandBuilder()
     .setName('unban')
