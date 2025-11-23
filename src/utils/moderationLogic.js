@@ -54,7 +54,10 @@ export async function logModerationAction(guild, action, moderator, target, reas
 
   try {
     const channel = await guild.channels.fetch(config.mod_log_channel_id);
-    if (!channel) return;
+    if (!channel) {
+      console.error(`Mod log channel ${config.mod_log_channel_id} not found in guild ${guild.id}`);
+      return;
+    }
 
     const { EmbedBuilder } = await import('discord.js');
 

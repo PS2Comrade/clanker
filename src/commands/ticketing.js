@@ -1,6 +1,18 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits } from 'discord.js';
 import { tickets } from '../database/db.js';
 
+const TICKET_TYPE_EMOJIS = {
+  appeal: '⚖️',
+  support: '🎫',
+  bug: '🐛'
+};
+
+const TICKET_TYPE_NAMES = {
+  appeal: 'Appeal',
+  support: 'Support',
+  bug: 'Bug Report'
+};
+
 export const ticketCommand = {
   data: new SlashCommandBuilder()
     .setName('ticket')
@@ -57,21 +69,9 @@ export const ticketCommand = {
 
       tickets.setChannelId(ticketId, channel.id);
 
-      const typeEmojis = {
-        appeal: '⚖️',
-        support: '🎫',
-        bug: '🐛'
-      };
-
-      const typeNames = {
-        appeal: 'Appeal',
-        support: 'Support',
-        bug: 'Bug Report'
-      };
-
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
-        .setTitle(`${typeEmojis[type]} ${typeNames[type]} #${ticketNumber}`)
+        .setTitle(`${TICKET_TYPE_EMOJIS[type]} ${TICKET_TYPE_NAMES[type]} #${ticketNumber}`)
         .setDescription(`**Creator:** ${interaction.user.tag}\n**Reason:** ${reason}`)
         .addFields(
           { name: 'Status', value: '🟢 Open', inline: true },
@@ -122,18 +122,12 @@ export const ticketListCommand = {
       return;
     }
 
-    const typeEmojis = {
-      appeal: '⚖️',
-      support: '🎫',
-      bug: '🐛'
-    };
-
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setTitle('📋 Open Tickets')
       .setDescription(openTickets.map(t => {
         const claimed = t.claimer_id ? `<@${t.claimer_id}>` : 'Unclaimed';
-        return `${typeEmojis[t.type]} **#${t.ticket_number}** - <@${t.creator_id}> - ${claimed}`;
+        return `${TICKET_TYPE_EMOJIS[t.type]} **#${t.ticket_number}** - <@${t.creator_id}> - ${claimed}`;
       }).join('\n'))
       .setTimestamp();
 
@@ -198,9 +192,13 @@ export async function handleTicketButton(interaction) {
 
       const channel = interaction.channel;
       if (channel) {
-        await channel.permissionOverwrites.edit(ticket.creator_id, {
-          SendMessages: false
-        });
+        try {
+          await channel.permissionOverwrites.edit(ticket.creator_id, {
+            SendMessages: false
+          });
+        } catch (error) {
+          console.error('Failed to edit channel permissions on ticket close:', error);
+        }
       }
 
     } else if (subAction === 'reopen') {
@@ -236,9 +234,13 @@ export async function handleTicketButton(interaction) {
 
       const channel = interaction.channel;
       if (channel) {
-        await channel.permissionOverwrites.edit(ticket.creator_id, {
-          SendMessages: true
-        });
+        try {
+          await channel.permissionOverwrites.edit(ticket.creator_id, {
+            SendMessages: true
+          });
+        } catch (error) {
+          console.error('Failed to edit channel permissions on ticket reopen:', error);
+        }
       }
     }
   } catch (error) {
