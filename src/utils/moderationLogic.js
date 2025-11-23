@@ -1,38 +1,28 @@
-import { moderation } from '../database/db.js';
+import { moderation, botModeration, guildConfig } from '../database/db.js';
 
-// Trial system configuration
 const TRIAL_CONFIG = {
-  1: { maxWarns: 5, appealDays: 7 },      // First Trial
-  2: { maxWarns: 4, appealDays: 14 },     // Second Trial
-  3: { maxWarns: 3, appealDays: 90 },     // Third Trial
-  4: { maxWarns: 5, appealDays: null }    // Great Trial (permanent)
+  1: { maxWarns: 5, appealDays: 7 },
+  2: { maxWarns: 4, appealDays: 14 },
+  3: { maxWarns: 3, appealDays: 90 },
+  4: { maxWarns: 5, appealDays: null }
 };
 
-/**
- * Process a warning for a user
- * Returns: { banned: boolean, trialStage: number, warnCount: number, appealDate: Date|null }
- */
 export function processWarning(guildId, userId, moderatorId, reason) {
   const trial = moderation.getTrial(guildId, userId);
   const newWarnCount = trial.warn_count + 1;
   const currentStage = trial.trial_stage;
   const config = TRIAL_CONFIG[currentStage];
   
-  // Add warning to history
-  moderation.addAction(guildId, userId, moderatorId, 'warn', reason);
+  const caseNumber = moderation.addActionWithCase(guildId, userId, moderatorId, 'warn', reason);
   
-  // Check if ban threshold reached
   if (newWarnCount >= config.maxWarns) {
-    // Ban the user
-    moderation.addAction(guildId, userId, moderatorId, 'ban', `Trial ${currentStage} completed`);
+    moderation.addActionWithCase(guildId, userId, moderatorId, 'ban', `Trial ${currentStage} completed`);
     
-    // Calculate appeal date
     let appealDate = null;
     if (config.appealDays !== null) {
       appealDate = Math.floor(Date.now() / 1000) + (config.appealDays * 24 * 60 * 60);
     }
     
-    // Move to next trial stage
     const nextStage = currentStage < 4 ? currentStage + 1 : 4;
     moderation.updateTrial(guildId, userId, nextStage, 0, appealDate);
     
@@ -41,10 +31,10 @@ export function processWarning(guildId, userId, moderatorId, reason) {
       trialStage: currentStage,
       warnCount: newWarnCount,
       appealDate: appealDate ? new Date(appealDate * 1000) : null,
-      nextStage
+      nextStage,
+      caseNumber
     };
   } else {
-    // Update warn count
     moderation.updateTrial(guildId, userId, currentStage, newWarnCount, trial.ban_appeal_date);
     
     return {
@@ -52,20 +42,63 @@ export function processWarning(guildId, userId, moderatorId, reason) {
       trialStage: currentStage,
       warnCount: newWarnCount,
       appealDate: null,
-      nextStage: currentStage
+      nextStage: currentStage,
+      caseNumber
     };
   }
 }
 
-/**
- * Get user's moderation stats
- */
+export async function logModerationAction(guild, action, moderator, target, reason, caseNumber, duration = null) {
+  const config = guildConfig.get(guild.id);
+  if (!config.mod_log_channel_id) return;
+
+  try {
+    const channel = await guild.channels.fetch(config.mod_log_channel_id);
+    if (!channel) return;
+
+    const { EmbedBuilder } = await import('discord.js');
+
+    const actionColors = {
+      warn: 0xFFAA00,
+      mute: 0xFFAA00,
+      unmute: 0x00FF00,
+      kick: 0xFF6600,
+      ban: 0xFF0000,
+      unban: 0x00FF00,
+      tempban: 0xFF0000,
+      hackban: 0xFF0000,
+      bot_warn: 0xFFAA00,
+      bot_ban: 0xFF0000
+    };
+
+    const embed = new EmbedBuilder()
+      .setColor(actionColors[action] || 0x5865F2)
+      .setTitle(`${action.toUpperCase()} | Case #${caseNumber}`)
+      .addFields(
+        { name: 'User', value: `${target}`, inline: true },
+        { name: 'Moderator', value: `${moderator.tag}`, inline: true }
+      )
+      .setTimestamp();
+
+    if (reason) {
+      embed.addFields({ name: 'Reason', value: reason });
+    }
+
+    if (duration) {
+      embed.addFields({ name: 'Duration', value: formatDuration(duration) });
+    }
+
+    await channel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('Failed to log moderation action:', error);
+  }
+}
+
 export function getUserStats(guildId, userId) {
   const trial = moderation.getTrial(guildId, userId);
   const history = moderation.getHistory(guildId, userId);
   const config = TRIAL_CONFIG[trial.trial_stage];
   
-  // Check if user can appeal
   let canAppeal = false;
   if (trial.ban_appeal_date) {
     const now = Math.floor(Date.now() / 1000);
@@ -80,13 +113,10 @@ export function getUserStats(guildId, userId) {
     banAppealDate: trial.ban_appeal_date ? new Date(trial.ban_appeal_date * 1000) : null,
     canAppeal,
     isPermanent: trial.trial_stage === 4 && trial.ban_appeal_date === null,
-    history: history.slice(0, 10) // Last 10 actions
+    history: history.slice(0, 10)
   };
 }
 
-/**
- * Get trial stage name
- */
 export function getTrialName(stage) {
   const names = {
     1: 'First Trial',
@@ -97,16 +127,10 @@ export function getTrialName(stage) {
   return names[stage] || 'Unknown';
 }
 
-/**
- * Clear user warnings (admin only)
- */
 export function clearUserWarnings(guildId, userId) {
   moderation.clearWarnings(guildId, userId);
 }
 
-/**
- * Parse duration string (e.g., "1h", "30m", "1d")
- */
 export function parseDuration(durationStr) {
   const match = durationStr.match(/^(\d+)([smhd])$/i);
   if (!match) return null;
@@ -124,9 +148,6 @@ export function parseDuration(durationStr) {
   return value * (multipliers[unit] || 0);
 }
 
-/**
- * Format duration for display
- */
 export function formatDuration(ms) {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);

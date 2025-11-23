@@ -1,15 +1,15 @@
-import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
-import { moderation } from '../database/db.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { moderation, botModeration } from '../database/db.js';
 import { 
   processWarning, 
   getUserStats, 
   getTrialName, 
   clearUserWarnings,
   parseDuration,
-  formatDuration 
+  formatDuration,
+  logModerationAction
 } from '../utils/moderationLogic.js';
 
-// Warn command
 export const warnCommand = {
   data: new SlashCommandBuilder()
     .setName('warn')
@@ -31,7 +31,7 @@ export const warnCommand = {
     const reason = interaction.options.getString('reason') || 'No reason provided';
     
     if (user.bot) {
-      await interaction.reply({ content: 'Cannot warn bots.', ephemeral: true });
+      await interaction.reply({ content: 'Cannot warn bots. Use /botwarn instead.', ephemeral: true });
       return;
     }
     
@@ -46,7 +46,8 @@ export const warnCommand = {
       const embed = new EmbedBuilder()
         .setColor(result.banned ? 0xFF0000 : 0xFFAA00)
         .setTitle(result.banned ? '⚠️ User Banned' : '⚠️ User Warned')
-        .setDescription(`**User:** ${user.tag}\n**Moderator:** ${interaction.user.tag}`);
+        .setDescription(`**User:** ${user.tag}\n**Moderator:** ${interaction.user.tag}`)
+        .addFields({ name: 'Case Number', value: `#${result.caseNumber}`, inline: true });
       
       if (result.banned) {
         embed.addFields(
@@ -65,7 +66,6 @@ export const warnCommand = {
         
         embed.addFields({ name: 'Next Trial', value: getTrialName(result.nextStage) });
         
-        // Ban the user
         try {
           const member = await interaction.guild.members.fetch(user.id);
           await member.ban({ reason: `${getTrialName(result.trialStage)} completed: ${reason}` });
@@ -74,6 +74,8 @@ export const warnCommand = {
           console.error('Failed to ban user:', error);
           embed.setFooter({ text: 'Failed to ban user - insufficient permissions.' });
         }
+
+        await logModerationAction(interaction.guild, 'ban', interaction.user, user.tag, reason, result.caseNumber);
       } else {
         const stats = getUserStats(interaction.guildId, user.id);
         embed.addFields(
@@ -81,6 +83,8 @@ export const warnCommand = {
           { name: 'Warnings', value: `${result.warnCount}/${stats.maxWarns}`, inline: true },
           { name: 'Until Ban', value: `${stats.warnsUntilBan} more`, inline: true }
         );
+
+        await logModerationAction(interaction.guild, 'warn', interaction.user, user.tag, reason, result.caseNumber);
       }
       
       embed.addFields({ name: 'Reason', value: reason });
@@ -94,7 +98,6 @@ export const warnCommand = {
   }
 };
 
-// Mute/Timeout command
 export const muteCommand = {
   data: new SlashCommandBuilder()
     .setName('mute')
@@ -147,19 +150,21 @@ export const muteCommand = {
       const member = await interaction.guild.members.fetch(user.id);
       await member.timeout(duration, reason);
       
-      moderation.addAction(interaction.guildId, user.id, interaction.user.id, 'mute', reason);
+      const caseNumber = moderation.addActionWithCase(interaction.guildId, user.id, interaction.user.id, 'mute', reason, duration);
       
       const embed = new EmbedBuilder()
         .setColor(0xFFAA00)
         .setTitle('🔇 User Muted')
         .setDescription(`**User:** ${user.tag}\n**Moderator:** ${interaction.user.tag}`)
         .addFields(
+          { name: 'Case Number', value: `#${caseNumber}`, inline: true },
           { name: 'Duration', value: formatDuration(duration), inline: true },
           { name: 'Reason', value: reason }
         )
         .setFooter({ text: 'User has been timed out.' });
       
       await interaction.reply({ embeds: [embed] });
+      await logModerationAction(interaction.guild, 'mute', interaction.user, user.tag, reason, caseNumber, duration);
       
     } catch (error) {
       console.error('Mute command error:', error);
@@ -171,7 +176,6 @@ export const muteCommand = {
   }
 };
 
-// Unmute command
 export const unmuteCommand = {
   data: new SlashCommandBuilder()
     .setName('unmute')
@@ -190,12 +194,14 @@ export const unmuteCommand = {
       const member = await interaction.guild.members.fetch(user.id);
       await member.timeout(null);
       
-      moderation.addAction(interaction.guildId, user.id, interaction.user.id, 'unmute', null);
+      const caseNumber = moderation.addActionWithCase(interaction.guildId, user.id, interaction.user.id, 'unmute', null);
       
       await interaction.reply({ 
-        content: `✅ ${user.tag} has been unmuted.`, 
+        content: `✅ ${user.tag} has been unmuted. Case #${caseNumber}`, 
         ephemeral: true 
       });
+
+      await logModerationAction(interaction.guild, 'unmute', interaction.user, user.tag, null, caseNumber);
       
     } catch (error) {
       console.error('Unmute command error:', error);
@@ -207,7 +213,6 @@ export const unmuteCommand = {
   }
 };
 
-// Kick command
 export const kickCommand = {
   data: new SlashCommandBuilder()
     .setName('kick')
@@ -237,16 +242,20 @@ export const kickCommand = {
       const member = await interaction.guild.members.fetch(user.id);
       await member.kick(reason);
       
-      moderation.addAction(interaction.guildId, user.id, interaction.user.id, 'kick', reason);
+      const caseNumber = moderation.addActionWithCase(interaction.guildId, user.id, interaction.user.id, 'kick', reason);
       
       const embed = new EmbedBuilder()
         .setColor(0xFF6600)
         .setTitle('👢 User Kicked')
         .setDescription(`**User:** ${user.tag}\n**Moderator:** ${interaction.user.tag}`)
-        .addFields({ name: 'Reason', value: reason })
+        .addFields(
+          { name: 'Case Number', value: `#${caseNumber}`, inline: true },
+          { name: 'Reason', value: reason }
+        )
         .setFooter({ text: 'User has been kicked from the server.' });
       
       await interaction.reply({ embeds: [embed] });
+      await logModerationAction(interaction.guild, 'kick', interaction.user, user.tag, reason, caseNumber);
       
     } catch (error) {
       console.error('Kick command error:', error);
@@ -258,7 +267,6 @@ export const kickCommand = {
   }
 };
 
-// Ban command
 export const banCommand = {
   data: new SlashCommandBuilder()
     .setName('ban')
@@ -280,24 +288,37 @@ export const banCommand = {
     const reason = interaction.options.getString('reason') || 'No reason provided';
     
     if (user.bot) {
-      await interaction.reply({ content: 'Cannot ban bots.', ephemeral: true });
+      await interaction.reply({ content: 'Cannot ban bots. Use /botban instead.', ephemeral: true });
       return;
     }
     
     try {
       await interaction.guild.members.ban(user.id, { reason });
       
-      moderation.addAction(interaction.guildId, user.id, interaction.user.id, 'ban', reason);
+      const caseNumber = moderation.addActionWithCase(interaction.guildId, user.id, interaction.user.id, 'ban', reason);
       
       const embed = new EmbedBuilder()
         .setColor(0xFF0000)
         .setTitle('🔨 User Banned')
         .setDescription(`**User:** ${user.tag}\n**Moderator:** ${interaction.user.tag}`)
-        .addFields({ name: 'Reason', value: reason })
+        .addFields(
+          { name: 'Case Number', value: `#${caseNumber}`, inline: true },
+          { name: 'Reason', value: reason }
+        )
         .setFooter({ text: 'User has been banned from the server.' });
       
       await interaction.reply({ embeds: [embed] });
+      await logModerationAction(interaction.guild, 'ban', interaction.user, user.tag, reason, caseNumber);
       
+    } catch (error) {
+      console.error('Ban command error:', error);
+      await interaction.reply({ 
+        content: 'Failed to ban user - insufficient permissions.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
     } catch (error) {
       console.error('Ban command error:', error);
       await interaction.reply({ 
@@ -326,12 +347,14 @@ export const unbanCommand = {
     try {
       await interaction.guild.members.unban(userId);
       
-      moderation.addAction(interaction.guildId, userId, interaction.user.id, 'unban', null);
+      const caseNumber = moderation.addActionWithCase(interaction.guildId, userId, interaction.user.id, 'unban', null);
       
       await interaction.reply({ 
-        content: `✅ User <@${userId}> has been unbanned.`, 
+        content: `✅ User <@${userId}> has been unbanned. Case #${caseNumber}`, 
         ephemeral: true 
       });
+
+      await logModerationAction(interaction.guild, 'unban', interaction.user, `<@${userId}>`, null, caseNumber);
       
     } catch (error) {
       console.error('Unban command error:', error);
@@ -339,6 +362,256 @@ export const unbanCommand = {
         content: 'Failed to unban user - user may not be banned or invalid ID.', 
         ephemeral: true 
       });
+    }
+  }
+};
+
+export const hackbanCommand = {
+  data: new SlashCommandBuilder()
+    .setName('hackban')
+    .setDescription('Ban a user by ID (even if not in server)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+    .addStringOption(option =>
+      option.setName('user_id')
+        .setDescription('User ID to ban')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for banning')
+        .setRequired(false)
+    ),
+  
+  async execute(interaction) {
+    const userId = interaction.options.getString('user_id');
+    const reason = interaction.options.getString('reason') || 'No reason provided';
+    
+    try {
+      await interaction.guild.members.ban(userId, { reason: `Hackban: ${reason}` });
+      
+      const caseNumber = moderation.addActionWithCase(interaction.guildId, userId, interaction.user.id, 'hackban', reason);
+      
+      const embed = new EmbedBuilder()
+        .setColor(0xFF0000)
+        .setTitle('🔨 User Hackbanned')
+        .setDescription(`**User ID:** ${userId}\n**Moderator:** ${interaction.user.tag}`)
+        .addFields(
+          { name: 'Case Number', value: `#${caseNumber}`, inline: true },
+          { name: 'Reason', value: reason }
+        )
+        .setFooter({ text: 'User has been banned (hackban).' });
+      
+      await interaction.reply({ embeds: [embed] });
+      await logModerationAction(interaction.guild, 'hackban', interaction.user, userId, reason, caseNumber);
+      
+    } catch (error) {
+      console.error('Hackban command error:', error);
+      await interaction.reply({ 
+        content: 'Failed to hackban user - invalid ID or insufficient permissions.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
+export const tempbanCommand = {
+  data: new SlashCommandBuilder()
+    .setName('tempban')
+    .setDescription('Temporarily ban a user')
+    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('User to ban')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('duration')
+        .setDescription('Duration (e.g., 1h, 1d, 7d)')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for banning')
+        .setRequired(false)
+    ),
+  
+  async execute(interaction) {
+    const user = interaction.options.getUser('user');
+    const durationStr = interaction.options.getString('duration');
+    const reason = interaction.options.getString('reason') || 'No reason provided';
+    
+    if (user.bot) {
+      await interaction.reply({ content: 'Cannot tempban bots.', ephemeral: true });
+      return;
+    }
+    
+    const duration = parseDuration(durationStr);
+    if (!duration) {
+      await interaction.reply({ 
+        content: 'Invalid duration. Use format like: 1h, 1d, 7d', 
+        ephemeral: true 
+      });
+      return;
+    }
+    
+    try {
+      await interaction.guild.members.ban(user.id, { reason: `Tempban (${durationStr}): ${reason}` });
+      
+      const caseNumber = moderation.addActionWithCase(interaction.guildId, user.id, interaction.user.id, 'tempban', reason, duration);
+      
+      const unbanTime = Date.now() + duration;
+      
+      const embed = new EmbedBuilder()
+        .setColor(0xFF6600)
+        .setTitle('⏱️ User Temporarily Banned')
+        .setDescription(`**User:** ${user.tag}\n**Moderator:** ${interaction.user.tag}`)
+        .addFields(
+          { name: 'Case Number', value: `#${caseNumber}`, inline: true },
+          { name: 'Duration', value: formatDuration(duration), inline: true },
+          { name: 'Unbanned At', value: `<t:${Math.floor(unbanTime / 1000)}:R>`, inline: true },
+          { name: 'Reason', value: reason }
+        )
+        .setFooter({ text: 'Note: Manual unban required after duration expires.' });
+      
+      await interaction.reply({ embeds: [embed] });
+      await logModerationAction(interaction.guild, 'tempban', interaction.user, user.tag, reason, caseNumber, duration);
+      
+    } catch (error) {
+      console.error('Tempban command error:', error);
+      await interaction.reply({ 
+        content: 'Failed to tempban user - insufficient permissions.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
+export const botwarnCommand = {
+  data: new SlashCommandBuilder()
+    .setName('botwarn')
+    .setDescription('Warn a bot')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addUserOption(option =>
+      option.setName('bot')
+        .setDescription('Bot to warn')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for warning')
+        .setRequired(true)
+    ),
+  
+  async execute(interaction) {
+    const bot = interaction.options.getUser('bot');
+    const reason = interaction.options.getString('reason');
+    
+    if (!bot.bot) {
+      await interaction.reply({ content: 'Target must be a bot.', ephemeral: true });
+      return;
+    }
+    
+    try {
+      const caseNumber = botModeration.addAction(interaction.guildId, bot.id, interaction.user.id, 'warn', reason);
+      
+      const embed = new EmbedBuilder()
+        .setColor(0xFFAA00)
+        .setTitle('🤖 Bot Warned')
+        .setDescription(`**Bot:** ${bot.tag}\n**Moderator:** ${interaction.user.tag}`)
+        .addFields(
+          { name: 'Case Number', value: `#${caseNumber}`, inline: true },
+          { name: 'Reason', value: reason }
+        );
+      
+      await interaction.reply({ embeds: [embed] });
+      await logModerationAction(interaction.guild, 'bot_warn', interaction.user, bot.tag, reason, caseNumber);
+      
+    } catch (error) {
+      console.error('Bot warn error:', error);
+      await interaction.reply({ content: 'An error occurred.', ephemeral: true });
+    }
+  }
+};
+
+export const botbanCommand = {
+  data: new SlashCommandBuilder()
+    .setName('botban')
+    .setDescription('Ban a bot')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addUserOption(option =>
+      option.setName('bot')
+        .setDescription('Bot to ban')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for banning')
+        .setRequired(true)
+    ),
+  
+  async execute(interaction) {
+    const bot = interaction.options.getUser('bot');
+    const reason = interaction.options.getString('reason');
+    
+    if (!bot.bot) {
+      await interaction.reply({ content: 'Target must be a bot.', ephemeral: true });
+      return;
+    }
+    
+    try {
+      await interaction.guild.members.ban(bot.id, { reason: `Bot ban: ${reason}` });
+      
+      const caseNumber = botModeration.addAction(interaction.guildId, bot.id, interaction.user.id, 'ban', reason);
+      
+      const embed = new EmbedBuilder()
+        .setColor(0xFF0000)
+        .setTitle('🤖 Bot Banned')
+        .setDescription(`**Bot:** ${bot.tag}\n**Moderator:** ${interaction.user.tag}`)
+        .addFields(
+          { name: 'Case Number', value: `#${caseNumber}`, inline: true },
+          { name: 'Reason', value: reason }
+        )
+        .setFooter({ text: 'Bot has been banned from the server.' });
+      
+      await interaction.reply({ embeds: [embed] });
+      await logModerationAction(interaction.guild, 'bot_ban', interaction.user, bot.tag, reason, caseNumber);
+      
+    } catch (error) {
+      console.error('Bot ban error:', error);
+      await interaction.reply({ 
+        content: 'Failed to ban bot - insufficient permissions.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
+export const setModLogCommand = {
+  data: new SlashCommandBuilder()
+    .setName('setmodlog')
+    .setDescription('Set the moderation log channel')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addChannelOption(option =>
+      option.setName('channel')
+        .setDescription('Channel for mod logs')
+        .setRequired(true)
+    ),
+  
+  async execute(interaction) {
+    const channel = interaction.options.getChannel('channel');
+    
+    try {
+      const { guildConfig } = await import('../database/db.js');
+      guildConfig.setModLogChannel(interaction.guildId, channel.id);
+      
+      await interaction.reply({ 
+        content: `✅ Moderation log channel set to ${channel}.`, 
+        ephemeral: true 
+      });
+      
+    } catch (error) {
+      console.error('Set mod log error:', error);
+      await interaction.reply({ content: 'An error occurred.', ephemeral: true });
     }
   }
 };
