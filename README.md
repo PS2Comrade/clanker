@@ -71,18 +71,39 @@ npm start
 ### Moderation Commands
 
 #### Slash Commands
-- `/warn <user> [reason]` — Warn a user
+
+**User Moderation**:
+- `/warn <user> [reason]` — Warn a user (generates case number)
 - `/mute <user> <duration> [reason]` — Timeout a user (e.g., 1h, 30m, 1d)
 - `/unmute <user>` — Remove timeout from a user
 - `/kick <user> [reason]` — Kick a user
 - `/ban <user> [reason]` — Ban a user
 - `/unban <user_id>` — Unban a user
+- `/hackban <user_id> [reason]` — Ban a user by ID (even if not in server)
+- `/tempban <user> <duration> [reason]` — Temporarily ban a user
 - `/warns <user>` — Check user's warnings
 - `/clearwarns <user>` — Clear user's warnings (Admin only)
 - `/modstats <user>` — Show user's trial stage and history
 
+**Bot Moderation**:
+- `/botwarn <bot> <reason>` — Warn a bot
+- `/botban <bot> <reason>` — Ban a bot
+
+**Configuration**:
+- `/setmodlog <channel>` — Set moderation log channel (Admin only)
+
 #### Prefix Commands
 All moderation commands work with `!` prefix as well (e.g., `!warn @user reason`)
+
+### Ticketing Commands
+
+- `/ticket <type> <reason>` — Create a support ticket (types: appeal, support, bug)
+- `/tickets` — List all open tickets (Staff only)
+
+**Ticket Buttons**:
+- ✋ **Claim** — Claim a ticket
+- 🔒 **Close** — Close a ticket
+- 🔓 **Reopen** — Reopen a closed ticket
 
 ## Configuration
 
@@ -147,11 +168,24 @@ All moderation commands work with `!` prefix as well (e.g., `!warn @user reason`
 - Respects language blacklist
 
 ### Moderation System
-- Progressive punishment system
-- Automatic ban when threshold reached
+- Progressive punishment system (3-trial + Great Trial)
+- Case numbers for every moderation action
+- Automatic ban when warn threshold reached
 - Appeal system with timed cooldowns
 - Complete moderation history tracking
-- Protection against moderating bots
+- Separate bot moderation tracking
+- Mod log channel for automatic logging
+- Hackban support for banning non-members
+- Tempban support with duration
+
+### Ticketing System
+- Three ticket types: Appeal, Support, Bug Report
+- Automatic ticket numbering per server
+- Private ticket channels with permissions
+- Discord button UI for ticket operations
+- Ticket claiming for staff members
+- Reopen functionality for follow-ups
+- List view for all open tickets
 
 ### Error Handling
 - Graceful fallback between translation providers
@@ -162,10 +196,13 @@ All moderation commands work with `!` prefix as well (e.g., `!warn @user reason`
 ## Database
 
 The bot uses SQLite to store:
-- Guild configurations (auto-translate channels, blacklisted languages)
-- User moderation history
+- Guild configurations (auto-translate channels, blacklisted languages, mod log channel)
+- User moderation history with case numbers
+- Bot moderation history
 - Trial stages and warn counts
 - Ban appeal dates
+- Tickets (type, status, creator, claimer, channel)
+- Case number tracking per guild
 
 Database file is stored in `data/bot.db`
 
@@ -179,8 +216,15 @@ Database file is stored in `data/bot.db`
 ### Moderation Commands
 - Moderate Members (for warn, mute, unmute)
 - Kick Members (for kick)
-- Ban Members (for ban, unban)
-- Manage Guild (for configuration)
+- Ban Members (for ban, unban, hackban, tempban, botban)
+- Manage Guild (for configuration, botwarn)
+- Administrator (for setmodlog)
+
+### Ticketing Commands
+- Send Messages
+- Manage Channels (for creating ticket channels)
+- Manage Roles (for channel permissions)
+- Manage Guild (for viewing tickets list)
 
 ## Development
 
