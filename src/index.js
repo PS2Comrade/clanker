@@ -18,12 +18,18 @@ import {
   unmuteCommand, 
   kickCommand, 
   banCommand, 
-  unbanCommand, 
+  unbanCommand,
+  hackbanCommand,
+  tempbanCommand,
+  botwarnCommand,
+  botbanCommand,
+  setModLogCommand,
   warnsCommand, 
   clearwarnsCommand, 
   modstatsCommand,
   handlePrefixModeration 
 } from './commands/moderation.js';
+import { ticketCommand, ticketListCommand, handleTicketButton } from './commands/ticketing.js';
 
 dotenv.config();
 
@@ -67,7 +73,6 @@ const client = new Client({
 // Initialize commands collection
 client.commands = new Collection();
 
-// Register slash commands
 const commands = [
   trSlashCommand,
   trAutoCommand,
@@ -78,9 +83,16 @@ const commands = [
   kickCommand,
   banCommand,
   unbanCommand,
+  hackbanCommand,
+  tempbanCommand,
+  botwarnCommand,
+  botbanCommand,
+  setModLogCommand,
   warnsCommand,
   clearwarnsCommand,
-  modstatsCommand
+  modstatsCommand,
+  ticketCommand,
+  ticketListCommand
 ];
 
 commands.forEach(cmd => {
@@ -123,23 +135,34 @@ client.once('ready', async () => {
   console.log('🤖 Bot is ready!');
 });
 
-// Handle slash command interactions
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-  
-  const command = client.commands.get(interaction.commandName);
-  if (!command) return;
-  
-  try {
-    await command.execute(interaction, config);
-  } catch (error) {
-    console.error('Command execution error:', error);
-    const reply = { content: 'An error occurred while executing this command.', ephemeral: true };
+  if (interaction.isChatInputCommand()) {
+    const command = client.commands.get(interaction.commandName);
+    if (!command) return;
     
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(reply);
-    } else {
-      await interaction.reply(reply);
+    try {
+      await command.execute(interaction, config);
+    } catch (error) {
+      console.error('Command execution error:', error);
+      const reply = { content: 'An error occurred while executing this command.', ephemeral: true };
+      
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(reply);
+      } else {
+        await interaction.reply(reply);
+      }
+    }
+  } else if (interaction.isButton()) {
+    try {
+      const handled = await handleTicketButton(interaction);
+      if (!handled) {
+        await interaction.reply({ content: 'Unknown button interaction.', ephemeral: true });
+      }
+    } catch (error) {
+      console.error('Button interaction error:', error);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: 'An error occurred.', ephemeral: true });
+      }
     }
   }
 });

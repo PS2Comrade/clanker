@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a **complete rewrite** of the Clanker Discord bot from Python (discord.py) to Node.js (Discord.js v14). The rewrite addresses all issues mentioned in the problem statement and implements new features.
+This is a **complete rewrite** of the Clanker Discord bot from Python (discord.py) to Node.js (Discord.js v14). The rewrite addresses all issues mentioned in the problem statement and implements new features including advanced ticketing system and enhanced moderation.
 
 ## What Was Done
 
@@ -21,6 +21,7 @@ This is a **complete rewrite** of the Clanker Discord bot from Python (discord.p
    - Brand new 3-trial system implemented from scratch
    - Database-backed with SQLite
    - All commands working properly
+   - Enhanced with case numbers, tempban, hackban, and bot moderation
 
 4. **Command Registration** ✅
    - Both slash (/) and prefix (!) commands fully functional
@@ -32,6 +33,32 @@ This is a **complete rewrite** of the Clanker Discord bot from Python (discord.p
    - Graceful error handling throughout
 
 ## New Features Implemented
+
+### 🎫 Ticketing System
+
+A complete Discord-based ticketing system for moderation appeals, support queries, and bug reports.
+
+**Features**:
+- Three ticket types: Appeal, Support, Bug Report
+- Discord button UI for ticket operations
+- Automatic ticket numbering per server
+- Private ticket channels with permissions
+- Ticket claiming for staff
+- Reopen functionality for follow-ups
+
+**Commands**:
+- `/ticket <type> <reason>` - Create a new ticket
+- `/tickets` - List all open tickets (staff only)
+
+**Button Actions**:
+- 🎫 **Claim** - Staff can claim a ticket
+- 🔒 **Close** - Close the ticket
+- 🔓 **Reopen** - Reopen a closed ticket
+
+**Database**:
+- Tracks ticket number, type, status, creator, claimer
+- Associates tickets with Discord channels
+- Maintains full ticket history
 
 ### Translation System
 
@@ -57,7 +84,7 @@ This is a **complete rewrite** of the Clanker Discord bot from Python (discord.p
 - `/tr_auto add/remove/list` - Manage auto-translation
 - `/tr_status` - Show configuration
 
-### Moderation System (3-Trial)
+### Enhanced Moderation System (3-Trial + Case Numbers)
 
 **Progressive Punishment System**:
 
@@ -68,25 +95,37 @@ This is a **complete rewrite** of the Clanker Discord bot from Python (discord.p
 | Third Trial | 3 | Temporary | 3 months |
 | Great Trial | 5 | Permanent | Never |
 
-**Features**:
-- Automatic progression through trials
-- Ban appeal tracking with dates
-- Complete moderation history
-- Protection against bot moderation
-- Auto-ban when threshold reached
+**New Features**:
+- ✅ **Case Numbers** - Every moderation action gets a unique case number
+- ✅ **Hackban** - Ban users by ID even if not in server
+- ✅ **Tempban** - Temporary bans with duration
+- ✅ **Bot Moderation** - Separate tracking for bot warns/bans
+- ✅ **Mod Log Channel** - Automatic logging to designated channel
+- ✅ **Discord Buttons** - Enhanced UI for actions
 
-**Commands**:
-- `/warn @user [reason]` - Warn a user
-- `/mute @user <duration> [reason]` - Timeout (1h, 30m, etc)
-- `/unmute @user` - Remove timeout
-- `/kick @user [reason]` - Kick from server
-- `/ban @user [reason]` - Ban from server
-- `/unban <user_id>` - Unban user
+**Enhanced Commands**:
+- `/warn @user [reason]` - Warn a user (with case number)
+- `/mute @user <duration> [reason]` - Timeout (with case number)
+- `/unmute @user` - Remove timeout (with case number)
+- `/kick @user [reason]` - Kick from server (with case number)
+- `/ban @user [reason]` - Ban from server (with case number)
+- `/unban <user_id>` - Unban user (with case number)
+- `/hackban <user_id> [reason]` - Ban non-member by ID
+- `/tempban @user <duration> [reason]` - Temporary ban
+- `/botwarn @bot <reason>` - Warn a bot
+- `/botban @bot <reason>` - Ban a bot
+- `/setmodlog #channel` - Set mod log channel
 - `/warns @user` - Check warnings
 - `/clearwarns @user` - Reset warnings (admin)
 - `/modstats @user` - Full stats and history
 
 All commands work with `!` prefix too!
+
+**Mod Log Integration**:
+- Automatic logging of all moderation actions
+- Rich embeds with case numbers
+- Color-coded by action type
+- Includes moderator, target, reason, and duration
 
 ## Technical Implementation
 
@@ -97,7 +136,8 @@ src/
 ├── index.js                      # Main entry point, event handlers
 ├── commands/
 │   ├── translation.js            # All translation commands
-│   └── moderation.js             # All moderation commands
+│   ├── moderation.js             # Enhanced moderation commands
+│   └── ticketing.js              # Ticketing system commands
 ├── database/
 │   └── db.js                     # SQLite database layer
 └── utils/
@@ -111,17 +151,36 @@ src/
 - auto_translate_channels (JSON array)
 - blacklisted_languages (JSON array)
 - translation_provider preference
+- mod_log_channel_id (for moderation logs)
 
 **user_moderation**: Moderation action log
 - guild_id, user_id, moderator_id
 - action (warn, mute, kick, ban, etc)
 - reason, timestamp
+- case_number (unique per guild)
+- duration (for tempban/mute)
 
 **user_trials**: Trial progression tracking
 - trial_stage (1-4)
 - warn_count
 - ban_appeal_date
 - timestamps
+
+**bot_moderation**: Bot moderation tracking
+- guild_id, bot_id, moderator_id
+- action (warn, ban)
+- reason, case_number, timestamp
+
+**tickets**: Ticketing system
+- ticket_number (per guild)
+- type (appeal, support, bug)
+- status (open, closed)
+- creator_id, claimer_id
+- channel_id, reason
+- timestamps (created, updated, closed)
+
+**case_numbers**: Case number tracking
+- last_case_number per guild
 
 ### Technology Stack
 
@@ -147,7 +206,7 @@ src/
 ### Testing
 
 Created comprehensive test suite (`test-bot.js`):
-- 16 integration tests
+- **29 integration tests** (up from 16)
 - 100% pass rate
 - Tests cover:
   - Database operations
@@ -155,6 +214,10 @@ Created comprehensive test suite (`test-bot.js`):
   - Moderation logic (all trial stages)
   - Duration parsing
   - Command structure
+  - **NEW:** Ticketing system (create, claim, close, reopen)
+  - **NEW:** Bot moderation tracking
+  - **NEW:** Case number generation
+  - **NEW:** Mod log channel configuration
 
 Run with: `npm test`
 
@@ -163,16 +226,18 @@ Run with: `npm test`
 - CodeQL security scan: **0 vulnerabilities**
 - No exposed secrets in code
 - Proper permission checks
-- Bot protection (can't moderate bots)
+- Bot protection (separate bot moderation commands)
 - Input validation throughout
+- Ticket channel permissions properly configured
 
 ### Code Quality
 
 - ESM modules (import/export)
 - Consistent error handling
 - Comprehensive logging
-- Type checking via JSDoc (optional)
+- Function-over-form approach (plain working code)
 - Clear code organization
+- No unnecessary comments
 
 ## Migration Path
 
@@ -206,6 +271,12 @@ Created comprehensive documentation:
 - SQLite database: fast local queries
 - Indexed lookups: instant user retrieval
 - Batch operations: efficient history queries
+- Case number tracking: O(1) lookups
+
+**Ticketing**:
+- Automatic ticket numbering per guild
+- Channel creation with proper permissions
+- Button-based UI for instant actions
 
 **Bot**:
 - Single process: low memory footprint (~50MB)
@@ -219,11 +290,17 @@ Created comprehensive documentation:
 - ✅ package-lock.json
 - ✅ config.json
 - ✅ .env.example
-- ✅ src/index.js
+- ✅ src/index.js (updated with button handling)
 - ✅ src/commands/translation.js
-- ✅ src/commands/moderation.js
-- ✅ src/database/db.js
+- ✅ src/commands/moderation.js (enhanced with case numbers, new commands)
+- ✅ src/commands/ticketing.js (NEW)
+- ✅ src/database/db.js (enhanced with new tables)
 - ✅ src/utils/translationProviders.js
+- ✅ src/utils/moderationLogic.js (enhanced with logging)
+- ✅ test-bot.js (updated with 29 tests)
+- ✅ MIGRATION.md
+- ✅ QUICKSTART.md
+- ✅ IMPLEMENTATION_SUMMARY.md (this file, updated)
 - ✅ src/utils/moderationLogic.js
 - ✅ test-bot.js
 - ✅ MIGRATION.md

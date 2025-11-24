@@ -4,7 +4,7 @@
  * Tests all major components without requiring Discord connection
  */
 
-import { initDatabase, guildConfig, moderation } from './src/database/db.js';
+import { initDatabase, guildConfig, moderation, botModeration, tickets } from './src/database/db.js';
 import { processWarning, getUserStats, getTrialName, parseDuration, formatDuration } from './src/utils/moderationLogic.js';
 import { translateWithLingva } from './src/utils/translationProviders.js';
 
@@ -173,6 +173,103 @@ test('Moderation commands exist', async () => {
   assertEquals(typeof muteCommand.execute, 'function', 'mute command has execute');
   assertEquals(typeof kickCommand.execute, 'function', 'kick command has execute');
   assertEquals(typeof banCommand.execute, 'function', 'ban command has execute');
+});
+
+console.log('\n🎫 Ticketing System Tests');
+console.log('─────────────────────────');
+
+test('Ticket creation', () => {
+  const result = tickets.create('test_guild_tickets', 'support', 'user_123', 'Need help');
+  assertEquals(typeof result.id, 'number', 'Ticket should have ID');
+  assertEquals(result.ticketNumber, 1, 'First ticket should be #1');
+});
+
+test('Ticket retrieval', () => {
+  const ticket = tickets.getByNumber('test_guild_tickets', 1);
+  assertEquals(ticket.type, 'support', 'Ticket type should match');
+  assertEquals(ticket.status, 'open', 'New ticket should be open');
+  assertEquals(ticket.creator_id, 'user_123', 'Creator should match');
+});
+
+test('Ticket claim', () => {
+  const ticket = tickets.getByNumber('test_guild_tickets', 1);
+  tickets.claim(ticket.id, 'mod_456');
+  const updated = tickets.get(ticket.id);
+  assertEquals(updated.claimer_id, 'mod_456', 'Ticket should be claimed');
+});
+
+test('Ticket close', () => {
+  const ticket = tickets.getByNumber('test_guild_tickets', 1);
+  tickets.close(ticket.id);
+  const updated = tickets.get(ticket.id);
+  assertEquals(updated.status, 'closed', 'Ticket should be closed');
+});
+
+test('Ticket reopen', () => {
+  const ticket = tickets.getByNumber('test_guild_tickets', 1);
+  tickets.reopen(ticket.id);
+  const updated = tickets.get(ticket.id);
+  assertEquals(updated.status, 'open', 'Ticket should be open');
+});
+
+test('List open tickets', () => {
+  const openTickets = tickets.getOpen('test_guild_tickets');
+  assertEquals(openTickets.length >= 1, true, 'Should have at least one open ticket');
+});
+
+console.log('\n🤖 Bot Moderation Tests');
+console.log('───────────────────────');
+
+test('Bot moderation - add action', () => {
+  const caseNum = botModeration.addAction('test_guild_bot', 'bot_123', 'mod_456', 'warn', 'Spam');
+  assertEquals(typeof caseNum, 'number', 'Should return case number');
+});
+
+test('Bot moderation - get history', () => {
+  const history = botModeration.getHistory('test_guild_bot', 'bot_123');
+  assertEquals(history.length >= 1, true, 'Should have bot moderation history');
+});
+
+console.log('\n📊 Case Number Tests');
+console.log('────────────────────');
+
+test('Case number generation', () => {
+  const case1 = moderation.getNextCaseNumber('test_guild_case');
+  const case2 = moderation.getNextCaseNumber('test_guild_case');
+  assertEquals(case2, case1 + 1, 'Case numbers should increment');
+});
+
+test('Add action with case', () => {
+  const caseNum = moderation.addActionWithCase('test_guild_case2', 'user_999', 'mod_111', 'kick', 'Test');
+  assertEquals(typeof caseNum, 'number', 'Should return case number');
+  
+  const caseData = moderation.getCaseById('test_guild_case2', caseNum);
+  assertEquals(caseData.action, 'kick', 'Case action should match');
+  assertEquals(caseData.user_id, 'user_999', 'Case user should match');
+});
+
+console.log('\n🆕 Enhanced Commands Tests');
+console.log('──────────────────────────');
+
+test('Enhanced commands exist', async () => {
+  const { hackbanCommand, tempbanCommand, botwarnCommand, botbanCommand, setModLogCommand } = await import('./src/commands/moderation.js');
+  assertEquals(typeof hackbanCommand.execute, 'function', 'hackban command exists');
+  assertEquals(typeof tempbanCommand.execute, 'function', 'tempban command exists');
+  assertEquals(typeof botwarnCommand.execute, 'function', 'botwarn command exists');
+  assertEquals(typeof botbanCommand.execute, 'function', 'botban command exists');
+  assertEquals(typeof setModLogCommand.execute, 'function', 'setmodlog command exists');
+});
+
+test('Ticketing commands exist', async () => {
+  const { ticketCommand, ticketListCommand } = await import('./src/commands/ticketing.js');
+  assertEquals(typeof ticketCommand.execute, 'function', 'ticket command exists');
+  assertEquals(typeof ticketListCommand.execute, 'function', 'tickets command exists');
+});
+
+test('Mod log channel config', () => {
+  guildConfig.setModLogChannel('test_guild_modlog', 'channel_789');
+  const config = guildConfig.get('test_guild_modlog');
+  assertEquals(config.mod_log_channel_id, 'channel_789', 'Mod log channel should be set');
 });
 
 // Summary
